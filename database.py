@@ -12,7 +12,16 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "mysql+aiomysql://root:root@localhost/sentiment_db"  # local fallback
 )
-engine = create_async_engine(DATABASE_URL, echo=False)  # echo=False in prod
+DATABASE_URL = DATABASE_URL.split("?")[0]
+
+# Use TLS if connecting to Aiven (cloud), skip if local
+connect_args = {"ssl": True} if "aivencloud" in DATABASE_URL else {}
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args=connect_args
+)
 
 class Base(DeclarativeBase):
     pass

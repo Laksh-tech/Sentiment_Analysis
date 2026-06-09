@@ -23,8 +23,11 @@ SYNC_DB_URL = os.getenv(
     "SYNC_DATABASE_URL",
     "mysql+pymysql://root:root@localhost/sentiment_db"
 )
+# celery_app.py — replace create_engine line inside each task
+SYNC_DB_URL = SYNC_DB_URL.split("?")[0]
 
-sync_engine = create_engine(SYNC_DB_URL)
+ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
+sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
 
 celery_backend.conf.update(
     worker_pool="solo",               # no forking on Windows
@@ -40,6 +43,11 @@ def compute_global_stats():
     # Since Celery runs in a separate synchronous worker process, we use a standard connection block
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import create_engine
+    
+    ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
+    sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
+
+    
     # Creating a temporary sync sync engine just for the background worker metric computation
     Session = sessionmaker(bind=sync_engine)
 
@@ -83,6 +91,9 @@ def compute_distribution():
     from sqlalchemy import create_engine, func, select 
     from sqlalchemy.orm import sessionmaker
     
+    ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
+    sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
+
     # Using standard pymysql for synchronous worker operations
     SessionLocal = sessionmaker(bind=sync_engine, autoflush=False, autocommit=False)
 
@@ -140,6 +151,10 @@ def compute_urgent_reviews():
     """Warms the top-10 urgent negative reviews cache."""
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import create_engine
+    
+    ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
+    sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
+
     Session = sessionmaker(bind=sync_engine)
 
     with Session() as session:
@@ -158,4 +173,5 @@ def compute_urgent_reviews():
         }
         redis_client.set("sentiment_urgent", json.dumps(data), ex=60)
         return "Urgent reviews cache warmed"
+    
     
