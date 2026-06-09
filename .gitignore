@@ -1,0 +1,14 @@
+.env
+.env.production
+__pycache__/
+*.pyc
+*.log
+pipeline.log
+celerybeat-schedule.*
+zomato_reviews.csv
+*.png
+sentimentops/
+test.py
+worker.py
+docker-compose.yml
+source_streamer.py
