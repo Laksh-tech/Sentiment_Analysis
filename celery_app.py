@@ -1,58 +1,68 @@
-from celery import Celery
-from celery.schedules import crontab
-import asyncio
-import json
-from database import engine, Sentiment
-from sqlalchemy import create_engine
-from sqlalchemy import select, func, case
-import redis as redis_sync # Celery workers typically run synchronously
 import os
+import json
+from celery import Celery
+import redis as redis_sync
+from sqlalchemy import create_engine, select, func, case
+from sqlalchemy.orm import sessionmaker
+from database import Sentiment
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-# # Initialize Celery
+# ── Celery Distributed Task Broker Pool Initialization ────────────────────────
 celery_backend = Celery(
     "tasks",
     broker=REDIS_URL,
     backend=REDIS_URL
 )
-# Also fix the sync redis client inside tasks:
-redis_client = redis_sync.from_url(REDIS_URL, decode_responses=True)
-# And fix the sync DB URL inside each task function:
-SYNC_DB_URL = os.getenv(
-    "SYNC_DATABASE_URL",
-    "mysql+pymysql://root:root@localhost/sentiment_db"
-)
-# celery_app.py — replace create_engine line inside each task
-SYNC_DB_URL = SYNC_DB_URL.split("?")[0]
-
-ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
-sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
 
 celery_backend.conf.update(
-    worker_pool="solo",               # no forking on Windows
-    worker_concurrency=1,             # solo pool is always 1
+    worker_pool="solo",               # Predictable worker model execution
+    worker_concurrency=1,
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
 )
 
+# ── Upstash Synchronous Cache Driver Configuration ────────────────────────────
+redis_connect_args = {}
+if REDIS_URL.startswith("rediss://"):
+    redis_connect_args["ssl_cert_reqs"] = None  # Permits handshakes across serverless edge networks
+
+redis_client = redis_sync.from_url(REDIS_URL, decode_responses=True, **redis_connect_args)
+
+# ── Aiven Cloud Synchronous Relational Pool Configuration ─────────────────────
+SYNC_DB_URL = os.getenv(
+    "SYNC_DATABASE_URL",
+    "mysql+pymysql://root:root@localhost/sentiment_db"
+)
+SYNC_DB_URL = SYNC_DB_URL.split("?")[0]
+
+# FIXED: Strict production SSL dictionary parameters map for cloud database instances
+ssl_args = {"ssl": {"ssl_mode": "REQUIRED"}} if "aivencloud" in SYNC_DB_URL else {}
+
+# FIXED: Singleton engine instantiation protects cloud socket allocation parameters
+sync_engine = create_engine(
+    SYNC_DB_URL, 
+    connect_args=ssl_args,
+    pool_pre_ping=True,               # Automatic dead connection detection
+    pool_recycle=1800                 # Recycles connections before cloud timeouts drop them
+)
+
+SessionLocal = sessionmaker(bind=sync_engine, autoflush=False, autocommit=False)
+
+# ── Celery Beat Metric Calculation Cron Setup ─────────────────────────────────
+celery_backend.conf.beat_schedule = {
+    "warm-stats-cache-every-10-mins": {
+        "task": "celery_app.compute_global_stats",
+        "schedule": 600.0,            # Periodic 10-minute cron interval parameter
+    },
+}
+
+# ── Asynchronous Execution Task Workers ───────────────────────────────────────
 @celery_backend.task
 def compute_global_stats():
     """Background task that runs heavy aggregation and warms the Redis cache"""
-    # Since Celery runs in a separate synchronous worker process, we use a standard connection block
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy import create_engine
-    
-    ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
-    sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
-
-    
-    # Creating a temporary sync sync engine just for the background worker metric computation
-    Session = sessionmaker(bind=sync_engine)
-
-    with Session() as session:
-        # Execute your heavy global stats query
+    with SessionLocal() as session:
         stats_query = session.execute(
             select(
                 func.count(Sentiment.id).label('total'),
@@ -72,31 +82,12 @@ def compute_global_stats():
                 "Neutral_Reviews": int(stats_query.neu) if stats_query.neu else 0,
                 "Overall_Positivity_Rate": float(stats_query.pos_rate) if stats_query.pos_rate else 0.0,
             }
-            # Warm up the cache by writing directly to Redis
             redis_client.set("sentiment_stats", json.dumps(data))
-            return "Cache Warmed Successfully"
+            return "Global stats cache warmed successfully"
 
-# Celery Beat Schedule Configuration to automate computation every 10 minutes
-celery_backend.conf.beat_schedule = {
-    "warm-stats-cache-every-10-mins": {
-        "task": "celery_app.compute_global_stats",
-        "schedule": 600.0, # 10 minutes in seconds
-    },
-}
-
-# Add these two tasks to your existing celery_app.py
 @celery_backend.task
 def compute_distribution():
     """Warms the distribution + review length cache synchronously."""
-    from sqlalchemy import create_engine, func, select 
-    from sqlalchemy.orm import sessionmaker
-    
-    ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
-    sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
-
-    # Using standard pymysql for synchronous worker operations
-    SessionLocal = sessionmaker(bind=sync_engine, autoflush=False, autocommit=False)
-
     with SessionLocal() as session:
         # 1. Score Correlation Query
         correlation_rows = session.execute(
@@ -122,7 +113,7 @@ def compute_distribution():
             ).group_by(Sentiment.label)
         ).all()
 
-        # 3. Clean Serialization Matching Your Dashboard Format
+        # 3. Clean Serialization Matrix
         data = {
             "Score_Correlation": [
                 {"score": float(r.rounded_score), "label": str(r.label), "count": int(r.count)}
@@ -142,22 +133,13 @@ def compute_distribution():
             ],
         }
         
-        # Save into the Redis cache for your FastAPI app to grab instantly
         redis_client.set("sentiment_distribution", json.dumps(data), ex=600)
         return "Distribution cache warmed successfully"
 
 @celery_backend.task
 def compute_urgent_reviews():
     """Warms the top-10 urgent negative reviews cache."""
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy import create_engine
-    
-    ssl_args = {"ssl": {"ssl_disabled": False}} if "aivencloud" in SYNC_DB_URL else {}
-    sync_engine = create_engine(SYNC_DB_URL, connect_args=ssl_args)
-
-    Session = sessionmaker(bind=sync_engine)
-
-    with Session() as session:
+    with SessionLocal() as session:
         rows = session.execute(
             select(Sentiment.text, Sentiment.score)
             .filter(Sentiment.label == 'negative')
@@ -172,6 +154,5 @@ def compute_urgent_reviews():
             ]
         }
         redis_client.set("sentiment_urgent", json.dumps(data), ex=60)
-        return "Urgent reviews cache warmed"
-    
+        return "Urgent reviews cache warmed successfully"
     
