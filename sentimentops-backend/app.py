@@ -59,11 +59,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # ── Lifecycle Hooks ───────────────────────────────────────────────────────────
+# ── Clean Production Lifecycle Hooks ───────────────────────────────────────────
 @app.on_event("startup")
-async def init_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    print("🚀 Neon Database Table Schema Initialization Complete!")
+async def startup_event():
+    # FIXED: Remove the blocking run_sync metadata call since tables are already built on Neon.
+    # This prevents the Uvicorn thread from locking up behind the serverless proxy gateway!
+    print("🚀 SentimentOps Production Engine Online & Handshaking with Neon Database Cluster!")
     # COMMENT THIS OUT TEMPORARILY:
     # _trigger_all_cache_warming()
      
