@@ -1,0 +1,28 @@
+[build]
+# System packages required for Python dependencies
+nixPackages = ["libpq", "postgresql", "gcc", "python313"]
+
+# Build command (optional, but explicit is safer)
+buildCommand = "pip install -r requirements.txt"
+
+# Watch patterns to trigger redeploys on file changes
+watchPatterns = [
+  "sentimentops-backend/**/*.py",
+  "requirements.txt",
+  "Procfile"
+]
+
+[deploy]
+# Health check to ensure app is ready
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+# Graceful shutdown
+drainingSeconds = 30
+
+# Restart policy
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Start command (matches your Procfile web process)
+startCommand = "cd sentimentops-backend && uvicorn app:app --host 0.0.0.0 --port $PORT"
