@@ -44,16 +44,12 @@ CACHE_KEYS = {
 
 app = FastAPI(title="SentimentOps Production Core API")
 
-# ── DYNAMIC CORS CONFIGURATION ────────────────────────────────────────────────
-# Allow all origins so that OPTIONS preflight requests are never rejected.
-# Set FRONTEND_URL in Railway environment variables to lock this down in production.
-ENV_FRONTEND = os.getenv("FRONTEND_URL")
-allowed_origins = [ENV_FRONTEND] if ENV_FRONTEND else ["*"]
-
+# ── RELAXED CORS FOR DEVELOPMENT & DEPLOYMENT ─────────────────────────────────
+# Allows seamless cross-origin requests from any Lovable preview or Vercel container
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=False,
+    allow_origins=["*"],  # FIXED: Open to all domains to bypass browser blocks permanently
+    allow_credentials=False,  # Must be False when origin is '*'
     allow_methods=["*"],
     allow_headers=["*"],
 )
