@@ -45,22 +45,15 @@ CACHE_KEYS = {
 app = FastAPI(title="SentimentOps Production Core API")
 
 # ── DYNAMIC CORS CONFIGURATION ────────────────────────────────────────────────
-# Captures your live Lovable, Vercel, or Local domains dynamically from environment variables
-allowed_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:4173"
-]
-
-# Read the custom production frontend URL dynamically if set in Railway variables
+# Allow all origins so that OPTIONS preflight requests are never rejected.
+# Set FRONTEND_URL in Railway environment variables to lock this down in production.
 ENV_FRONTEND = os.getenv("FRONTEND_URL")
-if ENV_FRONTEND:
-    allowed_origins.append(ENV_FRONTEND)
+allowed_origins = [ENV_FRONTEND] if ENV_FRONTEND else ["*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
