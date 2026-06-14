@@ -10,70 +10,62 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# App core dependencies
-from database import Base, engine, get_db, Sentiment, ReviewBatch
-from sentiment import query_sentiment
-from celery_app import compute_global_stats, compute_distribution, compute_urgent_reviews
+# ── FIX MODULE IMPORTS ────────────────────────────────────────────────────────
+# Force strict relative package management so Python locates files inside the subfolder
+from .database import Base, engine, get_db, Sentiment, ReviewBatch
+from .sentiment import query_sentiment
+from .celery_app import compute_global_stats, compute_distribution, compute_urgent_reviews
 
 load_dotenv()
 
-# FORCE INJECT: Hardcode your Upstash link as the default fallback string if environment variables are blank
+# ── REDIS CONFIGURATION (Upstash Edge Optimization) ───────────────────────────
 RAW_REDIS_URL = os.getenv(
     "REDIS_URL", 
     "rediss://default:gQAAAAAAAbooAAIgcDIxMjA0NTljZWU0ZTU0NjY3YmIwMzY2ZmEyN2Y4ZTRiMw@smiling-bluebird-113192.upstash.io:6379"
 )
 
-# SDE-1 Edge Case Config: Ensure explicit SSL argument mapping for Secure Redis (rediss://)
 redis_connect_args = {}
 if RAW_REDIS_URL.startswith("rediss://"):
-    redis_connect_args["ssl_cert_reqs"] = None  # Permits handshakes across serverless edge networks
+    redis_connect_args["ssl_cert_reqs"] = None  # Prevents edge network handshake timeouts
 
-# Initialize the async client with the secure path parameters
 redis_client = redis.from_url(RAW_REDIS_URL, decode_responses=True, **redis_connect_args)
-# ── Redis Client Initialization (Optimized for Upstash TLS) ────────────────────
-# Cache keys single source of truth configurations
+
 CACHE_KEYS = {
     "stats":        "sentiment_stats",
     "distribution": "sentiment_distribution",
     "urgent":       "sentiment_urgent",
 }
 
-app = FastAPI(title="Sentiment Analysis API")
+app = FastAPI(title="SentimentOps Production Core API")
 
-# ── CORS Middleware Configuration (Dynamic for Vercel Deployment) ──────────────
-# Pull the Vercel domain from variables; fallback to localhost for development
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-
-origins = [
-    FRONTEND_URL,
+# ── DYNAMIC CORS CONFIGURATION ────────────────────────────────────────────────
+# Captures your live Lovable, Vercel, or Local domains dynamically from environment variables
+allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173"
 ]
 
+# Read the custom production frontend URL dynamically if set in Railway variables
+ENV_FRONTEND = os.getenv("FRONTEND_URL")
+if ENV_FRONTEND:
+    allowed_origins.append(ENV_FRONTEND)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ── Lifecycle Hooks ───────────────────────────────────────────────────────────
-# ── Clean Production Lifecycle Hooks ───────────────────────────────────────────
+
+# ── LIFECYCLE HOOKS ───────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
-    # FIXED: Remove the blocking run_sync metadata call since tables are already built on Neon.
-    # This prevents the Uvicorn thread from locking up behind the serverless proxy gateway!
-    print("🚀 SentimentOps Production Engine Online & Handshaking with Neon Database Cluster!")
-    # COMMENT THIS OUT TEMPORARILY:
-    # _trigger_all_cache_warming()
-     
-def _trigger_all_cache_warming():
-    """Fire all Celery warming tasks. Non-blocking — workers handle it."""
-    compute_global_stats.delay()
-    compute_distribution.delay()
-    compute_urgent_reviews.delay()
-# ── Helper Date Parser (Moved outside loops to optimize memory) ──────────────
+    # Tables are pre-carved via force_neon_init.py; we can boot instantly without deadlocks!
+    print("🚀 SentimentOps Production Engine Online & Connected to Neon Cluster.")
+
+# ── DATE PARSER ───────────────────────────────────────────────────────────────
 def parse_date(date_str: str) -> datetime:
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
@@ -81,12 +73,13 @@ def parse_date(date_str: str) -> datetime:
         except ValueError:
             continue
     raise ValueError(f"Unrecognised date format: {date_str}")
-# ── Health Check ──────────────────────────────────────────────────────────────
+
+# ── HEALTH CHECK ──────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
-# ── Single Review Ingestion ───────────────────────────────────────────────────
+# ── SINGLE REVIEW INGESTION ───────────────────────────────────────────────────
 @app.get("/analyse", status_code=201)
 async def get_analytics(text: str, session: AsyncSession = Depends(get_db)):
     try:
@@ -94,7 +87,7 @@ async def get_analytics(text: str, session: AsyncSession = Depends(get_db)):
         label, score = await result if asyncio.iscoroutine(result) else result
         
         if label is None:
-            raise HTTPException(status_code=404, detail="Text too short or invalid — no context")
+            raise HTTPException(status_code=404, detail="Text too short or invalid")
             
         new_sentiment = Sentiment(
             text=text,
@@ -106,7 +99,6 @@ async def get_analytics(text: str, session: AsyncSession = Depends(get_db)):
         await session.flush()
         await session.commit()
 
-        # Invalidate stats so next cache read picks it up.
         await redis_client.delete(CACHE_KEYS["stats"])
         return {"text": text, "label": label, "score": score}
     except HTTPException:
@@ -115,7 +107,7 @@ async def get_analytics(text: str, session: AsyncSession = Depends(get_db)):
         await session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── Batch Review Ingestion ────────────────────────────────────────────────────
+# ── BATCH REVIEW INGESTION ────────────────────────────────────────────────────
 @app.post("/analyse_batch")
 async def analyse_batch(batch: ReviewBatch, session: AsyncSession = Depends(get_db)):
     try:
@@ -144,9 +136,6 @@ async def analyse_batch(batch: ReviewBatch, session: AsyncSession = Depends(get_
             await session.flush()
             await session.commit()
             
-            # REMOVE OR COMMENT this line out:
-            # _trigger_all_cache_warming()  <--- This was flooding your queue 1,000 times!
-            
         return {
             "status":    "success",
             "processed": len(db_insert_list),
@@ -158,7 +147,7 @@ async def analyse_batch(batch: ReviewBatch, session: AsyncSession = Depends(get_
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-# ── Analytics Segmented Router ────────────────────────────────────────────────
+# ── ANALYTICS ROUTER ──────────────────────────────────────────────────────────
 router = APIRouter(prefix="/analytics")
 
 def _cache_miss_response(cache_key: str) -> JSONResponse:
