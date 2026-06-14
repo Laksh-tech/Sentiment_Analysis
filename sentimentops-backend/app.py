@@ -1,7 +1,14 @@
 import asyncio
 import json
 import os
-import sys  # 1. Import sys to manipulate execution tracks
+import sys  # Imported to manipulate the execution tracks
+
+# ── PATH INJECTION FIX ──
+# Dynamically resolves the path so Uvicorn can find your module dependencies
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# Clean, standard, hectic-free absolute imports!
+# Clean, standard, absolute imports will now map perfectly
 from database import Base, engine, get_db, Sentiment, ReviewBatch
 from sentiment import query_sentiment
 from celery_app import compute_global_stats, compute_distribution, compute_urgent_reviews
