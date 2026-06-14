@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sys  # 1. Import sys to manipulate execution tracks
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,14 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# ── FIX MODULE IMPORTS ────────────────────────────────────────────────────────
-# Force strict relative package management so Python locates files inside the subfolder
-from .database import Base, engine, get_db, Sentiment, ReviewBatch
-from .sentiment import query_sentiment
-from .celery_app import compute_global_stats, compute_distribution, compute_urgent_reviews
+# 2. FORCE SYSTEM PATH TO INCLUDE SUBFOLDER (Resolves Railway execution handshakes)
+# This appends the exact directory where app.py lives into Python's lookup registry
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+# 3. CLEAN STANDARD IMPORTS (Now works flawlessly anywhere!)
+from database import Base, engine, get_db, Sentiment, ReviewBatch
+from sentiment import query_sentiment
+from celery_app import compute_global_stats, compute_distribution, compute_urgent_reviews
 
 load_dotenv()
-
 # ── REDIS CONFIGURATION (Upstash Edge Optimization) ───────────────────────────
 RAW_REDIS_URL = os.getenv(
     "REDIS_URL", 

@@ -1,11 +1,19 @@
 import os
+import sys
 import json
 from urllib.parse import urlparse, urlunparse
 from celery import Celery
 import redis as redis_sync
-from sqlalchemy import create_engine, select, func, case, Numeric, cast, Float
+from sqlalchemy import create_engine, select, func, case, cast, Numeric
 from sqlalchemy.orm import sessionmaker
-from database import Sentiment  # Fixed trailing comma syntax error
+
+# FORCE SYSTEM PATH IN WORKER ENGINE
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+# Clean, beautiful absolute import
+from database import Sentiment
 
 RAW_REDIS_URL = os.getenv(
     "REDIS_URL", 
