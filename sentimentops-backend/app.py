@@ -17,16 +17,20 @@ from celery_app import compute_global_stats, compute_distribution, compute_urgen
 
 load_dotenv()
 
-# ── Redis Client Initialization (Optimized for Upstash TLS) ────────────────────
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+# FORCE INJECT: Hardcode your Upstash link as the default fallback string if environment variables are blank
+RAW_REDIS_URL = os.getenv(
+    "REDIS_URL", 
+    "rediss://default:gQAAAAAAAbooAAIgcDIxMjA0NTljZWU0ZTU0NjY3YmIwMzY2ZmEyN2Y4ZTRiMw@smiling-bluebird-113192.upstash.io:6379"
+)
 
-# SDE-1 Edge Case: Ensure explicit SSL argument mapping if using Secure Redis (rediss://)
+# SDE-1 Edge Case Config: Ensure explicit SSL argument mapping for Secure Redis (rediss://)
 redis_connect_args = {}
-if REDIS_URL.startswith("rediss://"):
+if RAW_REDIS_URL.startswith("rediss://"):
     redis_connect_args["ssl_cert_reqs"] = None  # Permits handshakes across serverless edge networks
 
-redis_client = redis.from_url(REDIS_URL, decode_responses=True, **redis_connect_args)
-
+# Initialize the async client with the secure path parameters
+redis_client = redis.from_url(RAW_REDIS_URL, decode_responses=True, **redis_connect_args)
+# ── Redis Client Initialization (Optimized for Upstash TLS) ────────────────────
 # Cache keys single source of truth configurations
 CACHE_KEYS = {
     "stats":        "sentiment_stats",
@@ -54,21 +58,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # ── Lifecycle Hooks ───────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def init_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Warm all caches on startup so the very first user never hits a cold DB
-    _trigger_all_cache_warming()
-
+    print("🚀 Neon Database Table Schema Initialization Complete!")
+    # COMMENT THIS OUT TEMPORARILY:
+    # _trigger_all_cache_warming()
+     
 def _trigger_all_cache_warming():
     """Fire all Celery warming tasks. Non-blocking — workers handle it."""
     compute_global_stats.delay()
     compute_distribution.delay()
     compute_urgent_reviews.delay()
-
 # ── Helper Date Parser (Moved outside loops to optimize memory) ──────────────
 def parse_date(date_str: str) -> datetime:
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -77,7 +80,6 @@ def parse_date(date_str: str) -> datetime:
         except ValueError:
             continue
     raise ValueError(f"Unrecognised date format: {date_str}")
-
 # ── Health Check ──────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health_check():
@@ -106,7 +108,6 @@ async def get_analytics(text: str, session: AsyncSession = Depends(get_db)):
         # Invalidate stats so next cache read picks it up.
         await redis_client.delete(CACHE_KEYS["stats"])
         return {"text": text, "label": label, "score": score}
-
     except HTTPException:
         raise
     except Exception as e:
@@ -142,8 +143,8 @@ async def analyse_batch(batch: ReviewBatch, session: AsyncSession = Depends(get_
             await session.flush()
             await session.commit()
             
-            # Fire background asynchronous workers to refresh the cache layer
-            _trigger_all_cache_warming()
+            # REMOVE OR COMMENT this line out:
+            # _trigger_all_cache_warming()  <--- This was flooding your queue 1,000 times!
             
         return {
             "status":    "success",
