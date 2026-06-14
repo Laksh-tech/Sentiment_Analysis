@@ -11,13 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# 2. FORCE SYSTEM PATH TO INCLUDE SUBFOLDER (Resolves Railway execution handshakes)
-# This appends the exact directory where app.py lives into Python's lookup registry
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-if CURRENT_DIR not in sys.path:
-    sys.path.insert(0, CURRENT_DIR)
-
-# 3. CLEAN STANDARD IMPORTS (Now works flawlessly anywhere!)
+# Clean, standard, hectic-free absolute imports!
 from database import Base, engine, get_db, Sentiment, ReviewBatch
 from sentiment import query_sentiment
 from celery_app import compute_global_stats, compute_distribution, compute_urgent_reviews

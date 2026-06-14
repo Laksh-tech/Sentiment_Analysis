@@ -6,14 +6,8 @@ from celery import Celery
 import redis as redis_sync
 from sqlalchemy import create_engine, select, func, case, cast, Numeric
 from sqlalchemy.orm import sessionmaker
-
-# FORCE SYSTEM PATH IN WORKER ENGINE
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-if CURRENT_DIR not in sys.path:
-    sys.path.insert(0, CURRENT_DIR)
-
-# Clean, beautiful absolute import
-from database import Sentiment
+# Clean, standard, hectic-free absolute imports!
+from database import Base, engine, get_db, Sentiment, ReviewBatch
 
 RAW_REDIS_URL = os.getenv(
     "REDIS_URL", 
