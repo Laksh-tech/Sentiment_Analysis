@@ -1,5 +1,21 @@
 [build]
 builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
-[deploy]
-startCommand = "sh -c 'cd sentimentops-backend && uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}'"
+# ── 1. WEB API SERVICE CONFIGURATION ──────────────────────────────────────────
+[services.web.deploy]
+startCommand = "sh -c 'cd sentimentops-backend && uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}'"
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 5
+
+# ── 2. CELERY WORKER SERVICE CONFIGURATION ────────────────────────────────────
+[services.worker.deploy]
+startCommand = "sh -c 'cd sentimentops-backend && celery -A celery_app worker --loglevel=info -P solo'"
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 5
+
+# ── 3. CELERY BEAT SERVICE CONFIGURATION ──────────────────────────────────────
+[services.beat.deploy]
+startCommand = "sh -c 'cd sentimentops-backend && celery -A celery_app beat --loglevel=info'"
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 5
