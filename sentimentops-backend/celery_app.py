@@ -4,7 +4,7 @@ import json
 from urllib.parse import urlparse, urlunparse
 from celery import Celery
 import redis as redis_sync
-from sqlalchemy import create_engine, select, func, case, cast, Numeric
+from sqlalchemy import create_engine, select, func, case, cast, Numeric, Float
 from sqlalchemy.orm import sessionmaker
 # Clean, standard, hectic-free absolute imports!
 from database import Base, engine, get_db, Sentiment, ReviewBatch
