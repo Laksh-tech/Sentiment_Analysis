@@ -237,6 +237,8 @@ Using Upstash Redis as both the Celery message broker and the analytics cache el
 | Sentiment-Beat | ✅ ONLINE |
 | Neon PostgreSQL | ✅ 19,000+ rows synced |
 | Frontend | ✅ [sentimentops.lovable.app](https://sentimentops.lovable.app) |
+<img width="1918" height="971" alt="image" src="https://github.com/user-attachments/assets/1a342a40-e7c4-42ba-b048-b53551a76ac1" />
+
 
 ---
 
