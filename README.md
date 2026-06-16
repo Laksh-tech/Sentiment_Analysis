@@ -2,7 +2,7 @@
 ### Distributed High-Throughput Sentiment Analytics Engine
 
 > **Live Demo →** [sentimentops.lovable.app](https://sentimentops.lovable.app)
-> **Live API Endpoint →** [sentimentops.lovable.app](https://web-production-e3b1f.up.railway.app)  
+> **Live API Endpoint →** (https://web-production-e3b1f.up.railway.app)  
 > **Backend:** Railway Cloud (3 isolated containers) · **Frontend:** Lovable  
 > **Dataset:** 19,000+ Zomato & Blinkit reviews · **Ingestion throughput:** ~80 reviews/sec
 
