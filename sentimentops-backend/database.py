@@ -7,19 +7,20 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from dotenv import load_dotenv
 
-load_dotenv()
+current_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(current_dir, ".env.production"))
 
 # Force-inject your brand-new Neon connection string
 # Swap the generic prefix to use 'postgresql+asyncpg' for async runtime execution
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://neondb_owner:npg_c8T3HDCUuibR@ep-spring-band-aomqd54n-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable not set")
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_pre_ping=True,connect_args={"ssl":True}
+    pool_pre_ping=True,
+    connect_args={"ssl": True}
 )
 
 class Base(DeclarativeBase):

@@ -1,5 +1,0 @@
-[build]
-builder = "dockerfile"
-
-[deploy]
-startCommand = "sh -c \"cd sentimentops-backend && celery -A celery_app worker --loglevel=info -P solo\""

@@ -2,13 +2,20 @@
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 from database import Base
-
+from dotenv import load_dotenv
+import os
 # Neon direct secure async URL destination
-ASYNC_NEON_URL = "postgresql+asyncpg://neondb_owner:npg_c8T3HDCUuibR@ep-spring-band-aomqd54n-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(current_dir, ".env.production"))
 
+ASYNC_NEON_URL = os.getenv("DATABASE_URL")
+if not ASYNC_NEON_URL:
+    raise RuntimeError("DATABASE_URL environment variable not set")
+
+#print(ASYNC_NEON_URL) #working
 async def main():
     print("⏳ Establishing direct async connection with Neon Postgres cluster...")
-    cloud_engine = create_async_engine(ASYNC_NEON_URL, echo=True, connect_args={"ssl": True})
+    cloud_engine = create_async_engine(ASYNC_NEON_URL, echo=True, connect_args={"ssl": True}) # pyright: ignore[reportArgumentType] 
     
     try:
         async with cloud_engine.begin() as conn:

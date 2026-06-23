@@ -1,18 +1,24 @@
 import os
 import sys
 import json
-from urllib.parse import urlparse, urlunparse
 from celery import Celery
 import redis as redis_sync
 from sqlalchemy import create_engine, select, func, case, cast, Numeric, Float
 from sqlalchemy.orm import sessionmaker
 # Clean, standard, hectic-free absolute imports!
 from database import Base, engine, get_db, Sentiment, ReviewBatch
+from dotenv import load_dotenv
 
-RAW_REDIS_URL = os.getenv(
-    "REDIS_URL", 
-    "rediss://default:gQAAAAAAAbooAAIgcDIxMjA0NTljZWU0ZTU0NjY3YmIwMzY2ZmEyN2Y4ZTRiMw@smiling-bluebird-113192.upstash.io:6379"
-)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(current_dir, ".env.production"))
+
+RAW_REDIS_URL = os.getenv("REDIS_URL")
+# print("Loaded REDIS_URL:", os.getenv("REDIS_URL"))  # remove after confirming
+if not RAW_REDIS_URL:
+    raise RuntimeError("REDIS_URL environment variable not set")
+
+# SYNC_DB_URL = os.getenv("SYNC_DATABASE_URL")
+# print("Loaded REDIS_URL:", os.getenv("SYNC_DATABASE_URL"))  # remove after confirming
 
 CELERY_REDIS_URL = f"{RAW_REDIS_URL}?ssl_cert_reqs=none" if RAW_REDIS_URL.startswith("rediss://") and "ssl_cert_reqs" not in RAW_REDIS_URL else RAW_REDIS_URL
     
@@ -29,11 +35,10 @@ celery_backend.conf.update(
 redis_connect_args = {"ssl_cert_reqs": None} if RAW_REDIS_URL.startswith("rediss://") else {}
 redis_client = redis_sync.from_url(RAW_REDIS_URL, decode_responses=True, **redis_connect_args)
 
-# ── POSTGRES REALIGNMENT ──────────────────────────────────────────────────────
-SYNC_DB_URL = os.getenv(
-    "SYNC_DATABASE_URL",
-    "postgresql+psycopg2://neondb_owner:npg_c8T3HDCUuibR@ep-spring-band-aomqd54n-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
-)
+# # ── POSTGRES REALIGNMENT ──────────────────────────────────────────────────────
+SYNC_DB_URL = os.getenv("SYNC_DATABASE_URL")
+if not SYNC_DB_URL:
+    raise RuntimeError("SYNC_DATABASE_URL environment variable not set")
 
 sync_engine = create_engine(
     SYNC_DB_URL, 
@@ -63,7 +68,7 @@ def compute_global_stats():
         ).first()
 
         # Check what values are actually pulled from Postgres in your terminal logs
-        print(f"📊 Live Aggregation Sync Metrics -> Total: {stats_query.total}, Pos: {stats_query.pos}, Neg: {stats_query.neg}, Rate: {stats_query.pos_rate}")
+        print(f"📊 Live Aggregation Sync Metrics -> Total: {stats_query.total}, Pos: {stats_query.pos}, Neg: {stats_query.neg}, Rate: {stats_query.pos_rate}") # pyright: ignore[reportOptionalMemberAccess] 
 
         if stats_query and stats_query.total > 0:
             data = {
@@ -74,7 +79,7 @@ def compute_global_stats():
                 "Overall_Positivity_Rate": float(stats_query.pos_rate) if stats_query.pos_rate else 0.0,
             }
             # FIXED: Added 'ex=600' parameter to match your functional tasks and prevent permanent stale cache locks
-            redis_client.set("sentiment_stats", json.dumps(data), ex=600)
+            redis_client.set("sentiment_stats", json.dumps(data), ex=86400)
             return "Global stats cache warmed successfully"
             
         return "Calculation bypassed: Database sentiments table holds zero records."
@@ -107,7 +112,7 @@ def compute_distribution():
                 {
                     "score": float(r.rounded_score) if r.rounded_score is not None else 0.0, 
                     "label": str(r.label) if r.label else "unknown", 
-                    "count": int(r.count or 0)
+                    "count": int(r.count or 0)  # pyright: ignore[reportArgumentType] 
                 }
                 for r in correlation_rows
             ],
@@ -115,7 +120,7 @@ def compute_distribution():
                 {
                     "label": str(r.label) if r.label else "unknown", 
                     "average_score": float(r.avg_score or 0.0), 
-                    "count": int(r.count or 0)
+                    "count": int(r.count or 0)   # pyright: ignore[reportArgumentType] 
                 }
                 for r in metrics_rows
             ],
@@ -128,7 +133,7 @@ def compute_distribution():
                 for r in metrics_rows
             ],
         }
-        redis_client.set("sentiment_distribution", json.dumps(data), ex=600)
+        redis_client.set("sentiment_distribution", json.dumps(data), ex=86400)
         return "Distribution cache warmed successfully"
 
 @celery_backend.task
@@ -148,5 +153,5 @@ def compute_urgent_reviews():
                 for r in rows
             ]
         }
-        redis_client.set("sentiment_urgent", json.dumps(data), ex=60)
+        redis_client.set("sentiment_urgent", json.dumps(data), ex=86400)
         return "Urgent reviews cache warmed successfully"
